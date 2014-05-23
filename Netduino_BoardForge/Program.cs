@@ -11,7 +11,11 @@ namespace BoardForgeFirmware
     public class Program
     {
         static SerialPort serial;
-        
+        static OutputPort led = new OutputPort(Pins.ONBOARD_LED, false);
+        static Motor LedMotor;
+        static Motor RollerMotor;
+        static OutputPort UVLed;
+
         public static void Main()
         {
             // initialize the serial port for COM1 (using D0 & D1)
@@ -20,82 +24,116 @@ namespace BoardForgeFirmware
             serial.Open();
             // add an event-handler for handling incoming data
             serial.DataReceived += new SerialDataReceivedEventHandler(serial_DataReceived);
-            OutputPort led = new OutputPort(Pins.ONBOARD_LED, false);
-            for (int i = 0; i < 3; i++)
+            
+            //Confirmation that we're alive! 7 flashes of the LED.
+            for (int i = 0; i < 7; i++)
             {
-                led.Write(true); // turn on the LED
+                led.Write(true);   // turn on the LED
                 Thread.Sleep(250); // sleep for 250ms
-                led.Write(false); // turn off the LED
+                led.Write(false);  // turn off the LED
                 Thread.Sleep(250); // sleep for 250ms
             }
-
-            // wait forever...
-            Thread.Sleep(Timeout.Infinite);
             
             // write your code here
             //OutputPort BlueLed = new OutputPort(Pins.ONBOARD_LED, false);
-            //OutputPort UVLed = new OutputPort(Pins.GPIO_PIN_D8, false);
-            //Motor LedMotor = new Motor(
-            //    new DigitalPin(Pins.GPIO_PIN_D0),
-            //    new DigitalPin(Pins.GPIO_PIN_D1),
-            //    new DigitalPin(Pins.GPIO_PIN_D2),
-            //    new DigitalPin(Pins.GPIO_PIN_D3)
-            //    );
-            //Motor RollerMotor = new Motor(
-            //    new DigitalPin(Pins.GPIO_PIN_D4),
-            //    new DigitalPin(Pins.GPIO_PIN_D5),
-            //    new DigitalPin(Pins.GPIO_PIN_D6),
-            //    new DigitalPin(Pins.GPIO_PIN_D7)
-            //    );
-            //while (true)
-            //{
-            //    BlueLed.Write(true);
-            //    UVLed.Write(true);
-            //    for (int i = 0; i < 1000; i++)
-            //    {
-            //        Roll(RollerMotor, LedMotor);
-            //    }
-            //    BlueLed.Write(false);
-            //    UVLed.Write(false);
-            //    for (int i = 0; i < 1000; i++)
-            //    {
-            //        Roll(RollerMotor, LedMotor);
-            //    }
-            //}
+            UVLed = new OutputPort(Pins.GPIO_PIN_D10, false);
+            LedMotor = new Motor(
+                new DigitalPin(Pins.GPIO_PIN_D2),
+                new DigitalPin(Pins.GPIO_PIN_D3),
+                new DigitalPin(Pins.GPIO_PIN_D4),
+                new DigitalPin(Pins.GPIO_PIN_D5)
+                );
+            RollerMotor = new Motor(
+                new DigitalPin(Pins.GPIO_PIN_D6),
+                new DigitalPin(Pins.GPIO_PIN_D7),
+                new DigitalPin(Pins.GPIO_PIN_D8),
+                new DigitalPin(Pins.GPIO_PIN_D9)
+                );
+            while (true)
+            {
+                //Just spin around awaiting a command.
+                led.Write(true);
+                Thread.Sleep(100); // sleep for 100ms
+                //UVLed.Write(false);
+                led.Write(false);
+                Thread.Sleep(100); // sleep for 100ms
+            }
+            // wait forever...
+            //Thread.Sleep(Timeout.Infinite);
         }
 
         static void serial_DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
             // create a single byte array
-            byte[] bytes = new byte[1];
+            byte[] bytes = new byte[6];
             // as long as there is data waiting to be read
+            
             while (serial.BytesToRead > 0)
             {
-                // read a single byte
+                // read 5 bytes
                 serial.Read(bytes, 0, bytes.Length);
+                byte command = bytes[0];
+                int number = 0;
+                number = 1000 * AsciiToNumber(bytes[1]) + 100 * AsciiToNumber(bytes[2]) + 
+                            10 * AsciiToNumber(bytes[3]) + AsciiToNumber(bytes[4]);
+                bool direction = (bytes[5] == 82);
+                // A - Turn Blue LED on/off
+                if (command == 65)
+                {
+                    led.Write(direction); // turn on the LED
+                }
+                // B - Roller motor  B0024R  - Turn 24 steps to the right.
+                if (command == 66)
+                {
+                    Roll(RollerMotor, number, direction);
+                }
+                // C - LED Motor  C0012L - Turn 12 steps to the left
+                if (command == 67)
+                {
+                    Roll(LedMotor, number, direction);
+                }
+                // D - Turn UV LED on/off  DxxxxL - turn it off / DxxxxR - turn it on
+                if (command == 68)
+                {
+                    UVLed.Write(direction);
+                }
                 // send the same byte back
-                serial.Write(bytes, 0, bytes.Length);
-                OutputPort led1 = new OutputPort(Pins.ONBOARD_LED, false);
-                led1.Write(true); // turn on the LED
-                Thread.Sleep(250); // sleep for 250ms
-                led1.Write(false); // turn off the LED
-                Thread.Sleep(250); // sleep for 250ms
+                //serial.Write(bytes, 0, bytes.Length);
+                string totalCommand = (char)command + "-" + number.ToString() + "-" + direction.ToString();
+                byte[] reply = StringToBytes(totalCommand);
+                serial.Write(reply, 0, reply.Length);
             }
+        }
+
+        static byte[] StringToBytes(string str)
+        {
+            byte[] bytes = new byte[str.Length * sizeof(char)];
+            int position=0;
+            foreach (char c in str.ToCharArray())
+            {
+                bytes[position++] = (byte)c;
+            }
+            return bytes;
+        }
+
+        public static int AsciiToNumber(byte inNumber)
+        {
+            return ((inNumber < 48) || (inNumber > 57)) ? 0 : (inNumber - 48);
         }
 
         public static void ProcessCommand(byte[] command)
         {
             string commandString = command.ToString();
-
         }
-        //public static void Roll(Motor RollerMotor, Motor LedMotor)
-        //{
-        //    RollerMotor.Step(false);
-        //    LedMotor.Step(false);
-        //    Thread.Sleep(1);
-        //    LedMotor.Step(false);
-        //    RollerMotor.Step(false);
-        //    Thread.Sleep(1);
-        //}
+
+        public static void Roll(Motor motor, int NumSteps, bool ToRight)
+        {
+            for (int i = 0; i < NumSteps; i++)
+            {
+                motor.Step(ToRight);
+                Thread.Sleep(3);
+            }
+            
+        }
     }
 }
