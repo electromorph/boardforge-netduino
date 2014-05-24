@@ -26,13 +26,13 @@ namespace BoardForgeFirmware
         }
     }
 
-    public class Motor
+    public class StepperMotor
     {
         //pins contain integer representing the pin on the chip
         DigitalPin [] _motorWires;
         int position;
 
-        public Motor(DigitalPin Wire1, DigitalPin Wire2, DigitalPin Wire3, DigitalPin Wire4)
+        public StepperMotor(DigitalPin Wire1, DigitalPin Wire2, DigitalPin Wire3, DigitalPin Wire4)
         {
             _motorWires = new DigitalPin[] { Wire1, Wire2, Wire3, Wire4 };
             position = 0;

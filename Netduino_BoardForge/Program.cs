@@ -12,9 +12,10 @@ namespace BoardForgeFirmware
     {
         static SerialPort serial;
         static OutputPort led = new OutputPort(Pins.ONBOARD_LED, false);
-        static Motor LedMotor;
-        static Motor RollerMotor;
-        static OutputPort UVLed;
+        static StepperMotor LedMotor;
+        static StepperMotor RollerMotor;
+        static OutputPort UVLedTop;
+        static OutputPort UVLedBottom;
 
         public static void Main()
         {
@@ -36,14 +37,15 @@ namespace BoardForgeFirmware
             
             // write your code here
             //OutputPort BlueLed = new OutputPort(Pins.ONBOARD_LED, false);
-            UVLed = new OutputPort(Pins.GPIO_PIN_D10, false);
-            LedMotor = new Motor(
+            UVLedTop = new OutputPort(Pins.GPIO_PIN_D10, false);
+            UVLedTop = new OutputPort(Pins.GPIO_PIN_D11, false);
+            LedMotor = new StepperMotor(
                 new DigitalPin(Pins.GPIO_PIN_D2),
                 new DigitalPin(Pins.GPIO_PIN_D3),
                 new DigitalPin(Pins.GPIO_PIN_D4),
                 new DigitalPin(Pins.GPIO_PIN_D5)
                 );
-            RollerMotor = new Motor(
+            RollerMotor = new StepperMotor(
                 new DigitalPin(Pins.GPIO_PIN_D6),
                 new DigitalPin(Pins.GPIO_PIN_D7),
                 new DigitalPin(Pins.GPIO_PIN_D8),
@@ -62,32 +64,44 @@ namespace BoardForgeFirmware
             //Thread.Sleep(Timeout.Infinite);
         }
 
+        //Commands
+        //A - Turn blue LED on or off
+        //B - Turn motor left x steps.
+        //C - Turn motor right x steps.
+        //D = Turn UV LED1 on or off
+        //E = Turn UV LED2 on or off
+        //F = Write a line of dots (100 dots each 20 steps wide)
+        //G = Pulse drill
+        
         static void serial_DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
             // create a single byte array
-            byte[] bytes = new byte[6];
+            byte[] bytes = new byte[128];
             // as long as there is data waiting to be read
             
             while (serial.BytesToRead > 0)
             {
-                // read 5 bytes
+                // read as many bytes as they are.
                 serial.Read(bytes, 0, bytes.Length);
                 byte command = bytes[0];
                 int number = 0;
-                number = 1000 * AsciiToNumber(bytes[1]) + 100 * AsciiToNumber(bytes[2]) + 
+                if (command != 69)
+                {
+                    number = 1000 * AsciiToNumber(bytes[1]) + 100 * AsciiToNumber(bytes[2]) + 
                             10 * AsciiToNumber(bytes[3]) + AsciiToNumber(bytes[4]);
+                }
                 bool direction = (bytes[5] == 82);
                 // A - Turn Blue LED on/off
                 if (command == 65)
                 {
                     led.Write(direction); // turn on the LED
                 }
-                // B - Roller motor  B0024R  - Turn 24 steps to the right.
+                // B - Roller motor  e.g. B0024R  - Turn 24 steps to the right.
                 if (command == 66)
                 {
                     Roll(RollerMotor, number, direction);
                 }
-                // C - LED Motor  C0012L - Turn 12 steps to the left
+                // C - LED Motor  e.g. C0012L - Turn 12 steps to the left
                 if (command == 67)
                 {
                     Roll(LedMotor, number, direction);
@@ -95,13 +109,47 @@ namespace BoardForgeFirmware
                 // D - Turn UV LED on/off  DxxxxL - turn it off / DxxxxR - turn it on
                 if (command == 68)
                 {
-                    UVLed.Write(direction);
+                    UVLedTop.Write(direction);
+                }
+                // E - Turn UV LED on/off  DxxxxL - turn it off / DxxxxR - turn it on
+                if (command == 68)
+                {
+                    UVLedBottom.Write(direction);
+                }
+                // F - write line
+                if (command == 69)
+                {
+                    UVWriteLine(direction, bytes);
                 }
                 // send the same byte back
                 //serial.Write(bytes, 0, bytes.Length);
                 string totalCommand = (char)command + "-" + number.ToString() + "-" + direction.ToString();
                 byte[] reply = StringToBytes(totalCommand);
                 serial.Write(reply, 0, reply.Length);
+            }
+        }
+
+        private class UVSpot
+        {
+            public bool TopSpot { get; set; }
+            public bool BottomSpot { get; set; }
+        }
+
+        static void UVWriteLine(bool direction, byte[] bytes)
+        {
+            UVSpot[] spots = new UVSpot[64];
+            //i starts at 3.  First byte is crap, second is the command, the third is the direction.
+            for (int i = 2; i < bytes.Length; i=i+2)
+            {
+                spots[i / 2].TopSpot = (bytes[i] == 1);
+                spots[i / 2].BottomSpot = (bytes[i + 1] == 1);
+            }
+            foreach (UVSpot spot in spots)
+            {
+                UVLedTop.Write(spot.TopSpot);
+                UVLedBottom.Write(spot.BottomSpot);
+                //Roll 10 steps
+                Roll(LedMotor, 20, direction);
             }
         }
 
@@ -126,7 +174,7 @@ namespace BoardForgeFirmware
             string commandString = command.ToString();
         }
 
-        public static void Roll(Motor motor, int NumSteps, bool ToRight)
+        public static void Roll(StepperMotor motor, int NumSteps, bool ToRight)
         {
             for (int i = 0; i < NumSteps; i++)
             {
